@@ -8,7 +8,7 @@ BS = 64*1024
 
 def unpack_rmp(rmpfile, upath):
     rmp = open(rmpfile)
-    numfiles = struct.unpack('I', rmp.read(4))[0]
+    (numfiles, numfiles) = struct.unpack('II', rmp.read(8))
     files = []
     for i in range(0, numfiles):
         metadata = rmp.read(24)
@@ -17,6 +17,7 @@ def unpack_rmp(rmpfile, upath):
         files.append((filename, fileoffset, filesize))
     tmp = rmp.read(40)
     if tmp[2:10]!='MAGELLAN':
+        print repr(tmp)
         return (-1,'Broken RMP file: %s\n' % (rmpfile))
     if not os.path.exists(upath):
         os.makedirs(upath)
@@ -26,8 +27,9 @@ def unpack_rmp(rmpfile, upath):
         if i[0].find('/')!=-1:
             sys.stderr.write('Skipping file %s due to bad name\n' % (i[0]))
             continue
+        sys.stderr.write('Unpacking %s\n' % (i[0]))
         rmp.seek(i[1], 0)
-        w = open(os.path.join(upath, filename), 'w')
+        w = open(os.path.join(upath, i[0]), 'w')
         for k in range(0, (i[2]+BS-1)/BS):
             data = rmp.read(min(i[2]-BS*k, BS))
             w.write(data)

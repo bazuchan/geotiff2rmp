@@ -188,7 +188,7 @@ class rmpConverter(object):
         descfile += 'IMG_NAME = %s\r\n' % (self.outfile.replace('.rmp', ''))
         descfile += 'PRODUCT = %s\r\n' % (self.mapgroup)
         descfile += 'PROVIDER = %s\r\n' % (self.mapprov)
-        descfile += 'IMG_DATE = %s\r\n' % (time.strftime('%Y-%m-%d %H:%M:%S'))
+        descfile += 'IMG_DATE = %s\r\n' % (time.strftime('%d.%m.%Y %H:%M:%S'))
         descfile += 'IMG_VERSION = 31\r\n'
         descfile += 'Version = 31\r\n'
         descfile += 'BUILD=\r\n'
