@@ -321,9 +321,9 @@ class rmpConverter(object):
 
         if num_addblocks>0:
             tlm.seek(0x108, 0)
-            tlm.write(struct.pack('I', 0x1724))
+            tlm.write('$\x17\x00\x00')
             tlm.seek(0x1E5C, 0)
-            tlm.write(struct.pack('I', 0x0F5C))
+            tlm.write('\\\x0f\x00\x00')
             for i in range(2, num_blocks):
                 offset = 0x1E5C + (i-1)*4
                 val = 0x0F5C + 0x0f90 + 0x07c8*(i-2)
