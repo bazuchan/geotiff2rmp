@@ -7,6 +7,8 @@ import tempfile
 import os
 import time
 import struct
+import math
+import shutil
 
 BS = 64*1024
 
@@ -37,15 +39,16 @@ class mapFile(object):
             except:
                 break
             if interp==gdal.GCI_PaletteIndex:
-                self.interp = '-expand rgb '
+                self.interp = ' -expand rgb '
                 break
             elif interp in [gdal.GCI_RedBand, gdal.GCI_GreenBand, gdal.GCI_BlueBand]:
                 self.interp += '-b %u ' % (i)
         self.tl = (self.tran[0], self.tran[3])
         self.br = (self.tran[0]+self.tran[1]*self.size[0]+self.tran[2]*self.size[1], self.tran[3]+self.tran[4]*self.size[0]+self.tran[5]*self.size[1])
-        self.scale = (self.tran[1]*256, self.tran[5]*256)
+        self.scale = (abs(self.tran[1]*256), abs(self.tran[5]*256))
+        self.firsttile = self.get_first_tile()
         self.diff = self.get_tile_diff()
-        self.tile = self.get_size_in_tiles()
+        self.tiles = self.get_size_in_tiles()
         del tmp
    
     def get_size_in_tiles(self):
@@ -54,20 +57,18 @@ class mapFile(object):
         return (tilew, tileh)
 
     def get_tile_diff(self):
-        firsttile = self.get_first_tile()
-        tx = firsttile[0]*self.scale[0]
+        tx = self.firsttile[0]*self.scale[0]
         if tx>0:
             tx = tx - 180
         else:
             tx = -180 - tx
-        diffx = 256 - int(math.round(abs((self.tl[0] - tx)/self.tran[1])))
-        ty = firsttile[1]*self.scale[1]
+        diffx = 256 - int(round(abs((self.tl[0] - tx)/self.tran[1])))
+        ty = self.firsttile[1]*self.scale[1]
         if ty>0:
             ty = ty - 90
         else:
             ty = -90 - ty
-        ty = self.tl[1] - ty
-        diffy = 256 - int(math.round(abs((self.tl[1] - ty)/self.tran[5])))
+        diffy = 256 - int(round(abs((self.tl[1] - ty)/self.tran[5])))
         return (diffx, diffy)
 
     def get_first_tile(self):
@@ -105,7 +106,7 @@ class mapFile(object):
 
     @staticmethod
     def proj2datum(x):
-        m = re.search('DATUM["([^"]+)"' , x, re.I)
+        m = re.search('DATUM\["([^"]+)"', x, re.I)
         if m:
             return m.group(1).upper()
         return None
@@ -142,9 +143,9 @@ class rmpFile(object):
 
     def finish(self):
         try:
-            self.rmpfile = open(filename, 'w')
+            self.rmpfile = open(self.filename, 'w')
         except:
-            raise MapError('Cant open result file for "%s" for writing' % (filename))
+            raise MapError('Cant open result file for "%s" for writing' % (self.filename))
         numfiles = len(self.files)
         self.rmpfile.write(struct.pack('II', numfiles, numfiles))
         for i in range(0, numfiles):
@@ -162,12 +163,12 @@ class rmpFile(object):
         os.unlink(self.filename+'.tmp')
 
 class rmpConverter(object):
-    def __init__(self, outfile, mapgroup, mapprov, jpegquaity = 75, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
+    def __init__(self, outfile, mapgroup, mapprov, jpegquality = 75, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
         self.maps = []
         self.outfile = outfile
         self.mapgroup = mapgroup
         self.mapprov = mapprov
-        self.jpegquaity = jpegquaity
+        self.jpegquality = jpegquality
         self.resdir = resdir
         self.tempdir = tempdir
         self.tilesdir = tempdir + '/tiles/'
@@ -176,7 +177,10 @@ class rmpConverter(object):
         self.maps.append(rmap)
 
     def prepare_tmpdir(self):
-        shutil.rmtree(self.tilesdir)
+        try:
+            shutil.rmtree(self.tilesdir)
+        except:
+            pass
         os.makedirs(self.tilesdir)
 
     def craft_description_file(self):
@@ -185,13 +189,13 @@ class rmpConverter(object):
         descfile += 'PRODUCT = %s\r\n' % (self.mapgroup)
         descfile += 'PROVIDER = %s\r\n' % (self.mapprov)
         descfile += 'IMG_DATE = %s\r\n' % (time.strftime('%Y-%m-%d %H:%M:%S'))
-        descfile += 'IMG_VERSION = 31\r\n')
-        descfile += 'Version = 31\r\n')
-        descfile += 'BUILD=\r\n')
-        descfile += 'VENDOR_ID = -1\r\n')
-        descfile += 'REGION_ID = -1\r\n')
-        descfile += 'MAP_TYPE = TNDB_RASTER_MAP\r\n')
-        descfile += 'ADDITIONAL_COMMENTS = created with geotiff2rmp.py\r\n')
+        descfile += 'IMG_VERSION = 31\r\n'
+        descfile += 'Version = 31\r\n'
+        descfile += 'BUILD=\r\n'
+        descfile += 'VENDOR_ID = -1\r\n'
+        descfile += 'REGION_ID = -1\r\n'
+        descfile += 'MAP_TYPE = TNDB_RASTER_MAP\r\n'
+        descfile += 'ADDITIONAL_COMMENTS = created with geotiff2rmp.py\r\n'
         self.rmpfile.append_from_string('cvg_map.msf', descfile)
 
     def craft_ini_file(self):
@@ -201,8 +205,8 @@ class rmpConverter(object):
         inifile += '\0'
         self.rmpfile.append_from_string('rmp.ini', inifile)
 
-    def self.craft_resourse_files(self):
-        for i in ['BMP4BIT.ICS', 'chunk.ics']:
+    def craft_resourse_files(self):
+        for i in ['chunk.ics', 'BMP4BIT.ICS']:
             self.rmpfile.append_from_file(i, self.resdir + '/' + i)
 
     @staticmethod
@@ -229,7 +233,8 @@ class rmpConverter(object):
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
                 tile = 'tile-%u-%u-%u.jpg' % (self.maps.index(rmap), ix, iy)
                 jtile = '%s/%s' % (self.tilesdir, tile)
-                os.system('gdal_translate -of JPEG' + self.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile)
+                print 'gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile
+                os.system('gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile)
                 if xpad!=0 or ypad!=0:
                     if xpad>=0:
                         xcrop = '+0'
@@ -243,7 +248,7 @@ class rmpConverter(object):
                     os.unlink(jtile)
                     os.rename(jtile+'.tmp', jtile)
 
-    def craft_a00(self.rmap):
+    def craft_a00(self, rmap):
         num_tiles = rmap.tiles[0]*rmap.tiles[1]
         idx = self.maps.index(rmap)
 
@@ -266,7 +271,7 @@ class rmpConverter(object):
         tlm = open(self.tempdir + '/' + tlmname, 'w')
         header = '\x01\x00\x00\x00'
         header += struct.pack('I', num_tiles)
-        header += '\x00\x01\x00\x01\x01\x00\x00\x00')
+        header += '\x00\x01\x00\x01\x01\x00\x00\x00'
         header += struct.pack('dd', abs(rmap.scale[0]), abs(rmap.scale[1]))
         header += struct.pack('dd', abs(rmap.tl[0]), abs(rmap.tl[1]))
         header += struct.pack('dd', abs(rmap.br[0]), abs(rmap.br[1]))
@@ -287,7 +292,7 @@ class rmpConverter(object):
         for ix in range(0, rmap.tiles[0]):
             for iy in range(0, rmap.tiles[1]):
                 x = rmap.firsttile[0] + ix
-                y = rmap.firsttile[0] + iy
+                y = rmap.firsttile[1] + iy
                 block = 0
                 for j in range(2, num_blocks):
                     if done>(j-1)*70+j-2 and done<=j*70+j-2:
@@ -338,14 +343,14 @@ class rmpConverter(object):
     def run(self):
         self.rmpfile = rmpFile(self.outfile)
         self.prepare_tmpdir()
-        for rmap in maps:
+        self.craft_resourse_files()
+        for rmap in self.maps:
             self.craft_tiles(rmap)
             self.craft_a00(rmap)
         self.craft_description_file()
         self.craft_ini_file()
-        self.craft_resourse_files()
         self.rmpfile.finish()
-        #shutil.rmtree(self.tempdir)
+        shutil.rmtree(self.tempdir)
  
 if __name__=='__main__':
     converter = rmpConverter('test.rmp', 'test', 'baz')
