@@ -331,7 +331,7 @@ class rmpConverter(object):
                 tlm.write(struct.pack('I', val))
         else:
             tlm.seek(0x108, 0)
-            tlm.write(struct.pack('I', 0x0F5C))
+            tlm.write('\\\x0f\x00\x00')
 
         val = 0x105c + 0x7c8*(num_blocks+2)
         tlm.seek(0x9c, 0)
