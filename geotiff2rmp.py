@@ -321,9 +321,9 @@ class rmpConverter(object):
 
         if num_addblocks>0:
             tlm.seek(0x108, 0)
-            tlm.write('$\x17\x00\x00')
+            tlm.write('\x24\x17\x00\x00')
             tlm.seek(0x1E5C, 0)
-            tlm.write('\\\x0f\x00\x00')
+            tlm.write('\x5c\x0f\x00\x00')
             for i in range(2, num_blocks):
                 offset = 0x1E5C + (i-1)*4
                 val = 0x0F5C + 0x0f90 + 0x07c8*(i-2)
@@ -331,13 +331,13 @@ class rmpConverter(object):
                 tlm.write(struct.pack('I', val))
         else:
             tlm.seek(0x108, 0)
-            tlm.write('\\\x0f\x00\x00')
+            tlm.write('\x5c\x0f\x00\x00')
 
         val = 0x105c + 0x7c8*(num_blocks+2)
         tlm.seek(0x9c, 0)
         tlm.write(struct.pack('I', val))
         tlm.seek(val-1, 0)
-        tlm.write(struct.pack('B', 0))
+        tlm.write('\0')
         tlm.close()
         self.rmpfile.append_from_file(tlmname, self.tempdir + '/' + tlmname)
 
