@@ -201,7 +201,7 @@ class rmpConverter(object):
     def craft_ini_file(self):
         inifile = '[T_Layers]\r\n' 
         for i in range(0, len(self.maps)):
-            inifile += '%u=TOPO%u\r\n' % (i, i+1)
+            inifile += '%u=TOPO%u\r\n' % (i, i)
         inifile += '\0'
         self.rmpfile.append_from_string('rmp.ini', inifile)
 
