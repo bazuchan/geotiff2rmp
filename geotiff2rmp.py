@@ -273,7 +273,7 @@ class rmpConverter(object):
         header = '\x01\x00\x00\x00'
         header += struct.pack('I', num_tiles)
         header += '\x00\x01\x00\x01\x01\x00\x00\x00'
-        header += struct.pack('dd', abs(rmap.scale[0]), abs(rmap.scale[1]))
+        header += struct.pack('dd', abs(rmap.scale[1]), abs(rmap.scale[0]))
         header += struct.pack('dd', rmap.tl[0], rmap.tl[1])
         header += struct.pack('dd', rmap.br[0], rmap.br[1])
         header += '\0'*(0x99-len(header)) + '\x01'
