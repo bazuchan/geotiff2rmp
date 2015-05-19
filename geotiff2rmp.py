@@ -46,12 +46,12 @@ class mapFile(object):
                 break
             elif interp in [gdal.GCI_RedBand, gdal.GCI_GreenBand, gdal.GCI_BlueBand]:
                 self.interp += '-b %u ' % (i)
-        self.tl = (self.tran[0], -self.tran[3])
-        self.br = (self.tran[0]+self.tran[1]*self.size[0]+self.tran[2]*self.size[1], -(self.tran[3]+self.tran[4]*self.size[0]+self.tran[5]*self.size[1]))
+        self.top_left = (self.tran[0], -self.tran[3])
+        self.bottom_right = (self.tran[0]+self.tran[1]*self.size[0]+self.tran[2]*self.size[1], -(self.tran[3]+self.tran[4]*self.size[0]+self.tran[5]*self.size[1]))
         self.scale = (self.tran[1]*256, self.tran[5]*256)
-        self.firsttile = self.get_first_tile()
+        self.first_tile = self.get_first_tile()
         self.diff = self.get_tile_diff()
-        self.tiles = self.get_size_in_tiles()
+        self.size_in_tiles = self.get_size_in_tiles()
         del tmp
    
     def get_size_in_tiles(self):
@@ -60,22 +60,22 @@ class mapFile(object):
         return (tilew, tileh)
 
     def get_tile_diff(self):
-        tx = self.firsttile[0]*self.scale[0]
+        tx = self.first_tile[0]*self.scale[0]
         if tx>0:
             tx = tx - 180
         else:
             tx = -180 - tx
-        diffx = 256 - int(round(abs((self.tl[0] - tx)/self.tran[1])))
-        ty = self.firsttile[1]*self.scale[1]
+        diffx = 256 - int(round(abs((self.top_left[0] - tx)/self.tran[1])))
+        ty = self.first_tile[1]*self.scale[1]
         if ty>0:
             ty = ty - 90
         else:
             ty = -90 - ty
-        diffy = 256 - int(round(abs((self.tl[1] - ty)/self.tran[5])))
+        diffy = 256 - int(round(abs((self.top_left[1] - ty)/self.tran[5])))
         return (diffx, diffy)
 
     def get_first_tile(self):
-        x = int(math.ceil((self.tl[0]+180)/(abs(self.scale[0])))-10)
+        x = int(math.ceil((self.top_left[0]+180)/(abs(self.scale[0])))-10)
         for i in range(x, x+21):
             cmin = i*self.scale[0]
             cmax = (i+1)*self.scale[0]
@@ -87,10 +87,10 @@ class mapFile(object):
                 cmax = -180 - cmax
             else:
                 cmax = cmax - 180
-            if cmin<=self.tl[0] and self.tl[0]<cmax:
-                firsttilex = i
+            if cmin<=self.top_left[0] and self.top_left[0]<cmax:
+                first_tile_x = i
                 break
-        y = int(math.ceil((self.tl[1]+90)/(abs(self.scale[1])))-10)
+        y = int(math.ceil((self.top_left[1]+90)/(abs(self.scale[1])))-10)
         for i in range(y, y+21):
             cmin = i*self.scale[1]
             cmax = (i+1)*self.scale[1]
@@ -102,10 +102,10 @@ class mapFile(object):
                 cmax = -90 - cmax
             else:
                 cmax = cmax - 90
-            if cmin<=self.tl[1] and self.tl[1]<cmax:
-                firsttiley = i
+            if cmin<=self.top_left[1] and self.top_left[1]<cmax:
+                first_tile_y = i
                 break
-        return (firsttilex, firsttiley)
+        return (first_tile_x, first_tile_y)
 
     @staticmethod
     def proj2datum(x):
@@ -192,12 +192,12 @@ class rmpFile(object):
         os.unlink(self.filename+'.tmp')
 
 class rmpConverter(object):
-    def __init__(self, outfile, mapgroup, mapprov, jpegquality = 75, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
+    def __init__(self, outfile, map_group, map_prov, jpeg_quality = 75, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
         self.maps = []
         self.outfile = outfile
-        self.mapgroup = mapgroup
-        self.mapprov = mapprov
-        self.jpegquality = jpegquality
+        self.map_group = map_group
+        self.map_prov = map_prov
+        self.jpeg_quality = jpeg_quality
         self.resdir = resdir
         self.tempdir = tempdir
 
@@ -213,8 +213,8 @@ class rmpConverter(object):
     def craft_description_file(self):
         descfile = ';Map Support File : Contains Meta Data Information about the Image\r\n'
         descfile += 'IMG_NAME = %s\r\n' % (self.outfile.replace('.rmp', ''))
-        descfile += 'PRODUCT = %s\r\n' % (self.mapgroup)
-        descfile += 'PROVIDER = %s\r\n' % (self.mapprov)
+        descfile += 'PRODUCT = %s\r\n' % (self.map_group)
+        descfile += 'PROVIDER = %s\r\n' % (self.map_prov)
         descfile += 'IMG_DATE = %s\r\n' % (time.strftime('%d.%m.%Y %H:%M:%S'))
         descfile += 'IMG_VERSION = 31\r\n'
         descfile += 'Version = 31\r\n'
@@ -271,7 +271,7 @@ class rmpConverter(object):
         return o_img.getvalue()
 
     def craft_tiles(self, rmap):
-        num_tiles = rmap.tiles[0]*rmap.tiles[1]
+        num_tiles = rmap.size_in_tiles[0]*rmap.size_in_tiles[1]
         idx = self.maps.index(rmap)
 
         a00name = 'topo%u.a00' % (idx)
@@ -279,13 +279,13 @@ class rmpConverter(object):
         a00.write(struct.pack('I', num_tiles))
         offsets = [4]
 
-        for ix in range(0, rmap.tiles[0]):
-            for iy in range(0, rmap.tiles[1]):
+        for ix in range(0, rmap.size_in_tiles[0]):
+            for iy in range(0, rmap.size_in_tiles[1]):
                 (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
                 jtile = os.path.join(self.tempdir, 'tile.jpg')
-                print 'gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile
-                os.system('gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile)
+                print 'gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpeg_quality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile
+                os.system('gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpeg_quality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile)
                 tile = open(jtile).read()
                 if xpad!=0 or ypad!=0:
                     tile = self.crop_image(tile, tw, th, xpad, ypad)
@@ -300,8 +300,8 @@ class rmpConverter(object):
         header += struct.pack('I', num_tiles)
         header += '\x00\x01\x00\x01\x01\x00\x00\x00'
         header += struct.pack('dd', abs(rmap.scale[1]), abs(rmap.scale[0]))
-        header += struct.pack('dd', rmap.tl[0], rmap.tl[1])
-        header += struct.pack('dd', rmap.br[0], rmap.br[1])
+        header += struct.pack('dd', rmap.top_left[0], rmap.top_left[1])
+        header += struct.pack('dd', rmap.bottom_right[0], rmap.bottom_right[1])
         header += '\0'*(0x99-len(header)) + '\x01'
         header += '\0'*(0x100-len(header)) + '\x01'
         header += '\0'*(0x104-len(header)) + '\x63'
@@ -316,10 +316,10 @@ class rmpConverter(object):
 
         blocks = []
         done = 0
-        for ix in range(0, rmap.tiles[0]):
-            for iy in range(0, rmap.tiles[1]):
-                x = rmap.firsttile[0] + ix
-                y = rmap.firsttile[1] + iy
+        for ix in range(0, rmap.size_in_tiles[0]):
+            for iy in range(0, rmap.size_in_tiles[1]):
+                x = rmap.first_tile[0] + ix
+                y = rmap.first_tile[1] + iy
                 block = 0
                 for j in range(2, num_blocks):
                     if done>(j-1)*70+j-2 and done<=j*70+j-2:
