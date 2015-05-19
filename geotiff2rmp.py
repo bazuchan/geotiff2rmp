@@ -227,8 +227,8 @@ class rmpConverter(object):
         return (x, w, pad)
 
     def craft_tiles(self, rmap):
-        for iy in range(0, rmap.tiles[1]):
-            for ix in range(0, rmap.tiles[0]):
+        for ix in range(0, rmap.tiles[0]):
+            for iy in range(0, rmap.tiles[1]):
                 (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
                 tile = 'tile-%u-%u-%u.jpg' % (self.maps.index(rmap), ix, iy)
@@ -257,8 +257,8 @@ class rmpConverter(object):
         a00 = open(self.tempdir + '/' + a00name, 'w')
         a00.write(struct.pack('I', num_tiles))
         offsets = [4]
-        for iy in range(0, rmap.tiles[1]):
-            for ix in range(0, rmap.tiles[0]):
+        for ix in range(0, rmap.tiles[0]):
+            for iy in range(0, rmap.tiles[1]):
                 tile = 'tile-%u-%u-%u.jpg' % (self.maps.index(rmap), ix, iy)
                 jtile = '%s/%s' % (self.tilesdir, tile)
                 tilesize = os.stat(jtile).st_size
@@ -290,8 +290,8 @@ class rmpConverter(object):
 
         blocks = []
         done = 0
-        for iy in range(0, rmap.tiles[1]):
-            for ix in range(0, rmap.tiles[0]):
+        for ix in range(0, rmap.tiles[0]):
+            for iy in range(0, rmap.tiles[1]):
                 x = rmap.firsttile[0] + ix
                 y = rmap.firsttile[1] + iy
                 block = 0
