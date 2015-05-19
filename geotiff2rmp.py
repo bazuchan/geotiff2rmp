@@ -315,7 +315,7 @@ class rmpConverter(object):
             offset = 0x105c + 0x7c8*i
             tlm.seek(offset, 0)
             if i==1:
-                tlm.write(struct.pack('IHH', num_tiles, 0, blocks[i]))
+                tlm.write(struct.pack('II', num_tiles, blocks[i]))
             else:
                 tlm.write(struct.pack('IHH', blocks[i], blocks[i], 1))
 
