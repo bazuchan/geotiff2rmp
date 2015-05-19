@@ -9,6 +9,8 @@ import time
 import struct
 import math
 import shutil
+import io
+from PIL import Image
 
 BS = 64*1024
 
@@ -110,7 +112,34 @@ class mapFile(object):
         if m:
             return m.group(1).upper()
         return None
-     
+
+class rmpAppender(object):
+    def __init__(self, rmpfile, filename):
+        self.rmpfile = rmpfile
+        self.fileio = self.rmpfile.rmpfile_tmp
+        self.filename = filename
+        self.start = self.fileio.tell()
+
+    def write(self, *data):
+        self.fileio.write(*data)
+
+    def seek(self, pos, whence=0):
+        if whence==0:
+            self.fileio.seek(self.start+pos, 0)
+        elif whence==1:
+            self.fileio.seek(pos, 1)
+        elif whence==2:
+            self.fileio.seek(pos, 2)
+
+    def close(self):
+        self.fileio.seek(0, 2)
+        filesize = self.fileio.tell()-self.start
+        self.rmpfile.files.append((self.filename, self.rmpfile.offset, filesize))
+        self.rmpfile.offset += filesize
+        if filesize%2==1:
+            self.rmpfile.rmpfile_tmp.write('\0')
+            self.rmpfile.offset += 1
+
 class rmpFile(object):
     def __init__(self, filename):
         self.filename = filename
@@ -121,25 +150,24 @@ class rmpFile(object):
         self.files = []
         self.offset = 0
 
+    def get_appender(self, filename):
+        return rmpAppender(self, filename)
+
     def append_from_file(self, targetname, sourcename):
-        filesize = os.stat(sourcename).st_size
-        self.files.append((targetname, self.offset, filesize))
+        appender = self.get_appender(targetname)
         rfile = open(sourcename)
-        for i in range(0, (filesize+BS-1)/BS):
-            self.rmpfile_tmp.write(rfile.read(BS))
+        while True:
+            data = rfile.read(BS)
+            appender.write(data)
+            if len(data)<BS:
+                break
         rfile.close()
-        self.offset += filesize
-        if filesize%2==1:
-            self.rmpfile_tmp.write('\0')
-            self.offset += 1
+        appender.close()
 
     def append_from_string(self, targetname, content):
-        self.files.append((targetname, self.offset, len(content)))
-        self.rmpfile_tmp.write(content)
-        self.offset += len(content)
-        if len(content)%2==1:
-            self.rmpfile_tmp.write('\0')
-            self.offset += 1
+        appender = self.get_appender(targetname)
+        appender.write(content)
+        appender.close()
 
     def finish(self):
         try:
@@ -171,17 +199,15 @@ class rmpConverter(object):
         self.jpegquality = jpegquality
         self.resdir = resdir
         self.tempdir = tempdir
-        self.tilesdir = tempdir + '/tiles/'
 
     def add_map(self, rmap):
         self.maps.append(rmap)
 
     def prepare_tmpdir(self):
         try:
-            shutil.rmtree(self.tilesdir)
+            os.makedirs(self.tempdir)
         except:
             pass
-        os.makedirs(self.tilesdir)
 
     def craft_description_file(self):
         descfile = ';Map Support File : Contains Meta Data Information about the Image\r\n'
@@ -226,50 +252,49 @@ class rmpConverter(object):
             pad = 0
         return (x, w, pad)
 
-    def craft_tiles(self, rmap):
-        for ix in range(0, rmap.tiles[0]):
-            for iy in range(0, rmap.tiles[1]):
-                (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
-                (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
-                tile = 'tile-%u-%u-%u.jpg' % (self.maps.index(rmap), ix, iy)
-                jtile = '%s/%s' % (self.tilesdir, tile)
-                print 'gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile
-                os.system('gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile)
-                if xpad!=0 or ypad!=0:
-                    if xpad>=0:
-                        xcrop = '+0'
-                    else:
-                        xcrop = '-%u' % (256 - tw)
-                    if ypad>=0:
-                        ycrop = '+0'
-                    else:
-                        ycrop = '-%u' % (256 - th)
-                    print 'convert -crop 256x256%s%s! -flatten %s %s.tmp' % (xcrop, ycrop, jtile, jtile)
-                    os.system('convert -crop 256x256%s%s! -flatten %s %s.tmp' % (xcrop, ycrop, jtile, jtile))
-                    os.unlink(jtile)
-                    os.rename(jtile+'.tmp', jtile)
+    @staticmethod
+    def crop_image(str_img, tw, th, xpad, ypad):
+        if xpad>=0:
+            xcrop = 0
+        else:
+            xcrop = 256 - tw
+        if ypad>=0:
+            ycrop = 0
+        else:
+            ycrop = 256 - th
+        img = Image.open(io.BytesIO(str_img))
+        new_img = Image.new("RGB", (256, 256))
+        new_img.paste(img, (xcrop, ycrop))
+        o_img = io.BytesIO()
+        new = new_img.save(o_img, 'JPEG')
+        return o_img.getvalue()
 
-    def craft_a00(self, rmap):
+    def craft_tiles(self, rmap):
         num_tiles = rmap.tiles[0]*rmap.tiles[1]
         idx = self.maps.index(rmap)
 
         a00name = 'topo%u.a00' % (idx)
-        a00 = open(self.tempdir + '/' + a00name, 'w')
+        a00 = self.rmpfile.get_appender(a00name)
         a00.write(struct.pack('I', num_tiles))
         offsets = [4]
+
         for ix in range(0, rmap.tiles[0]):
             for iy in range(0, rmap.tiles[1]):
-                tile = 'tile-%u-%u-%u.jpg' % (self.maps.index(rmap), ix, iy)
-                jtile = '%s/%s' % (self.tilesdir, tile)
-                tilesize = os.stat(jtile).st_size
-                a00.write(struct.pack('I', tilesize))
-                a00.write(open(jtile).read())
-                offsets.append(offsets[-1] + tilesize + 4)
+                (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
+                (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
+                jtile = os.path.join(self.tempdir, 'tile.jpg')
+                print 'gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile
+                os.system('gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpegquality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile)
+                tile = open(jtile).read()
+                if xpad!=0 or ypad!=0:
+                    tile = self.crop_image(tile, tw, th, xpad, ypad)
+                a00.write(struct.pack('I', len(tile)))
+                a00.write(tile)
+                offsets.append(offsets[-1] + len(tile) + 4)
         a00.close()
-        self.rmpfile.append_from_file(a00name, self.tempdir + '/' + a00name)
-        
+
         tlmname = 'topo%u.tlm' % (idx)
-        tlm = open(self.tempdir + '/' + tlmname, 'w')
+        tlm = self.rmpfile.get_appender(tlmname)
         header = '\x01\x00\x00\x00'
         header += struct.pack('I', num_tiles)
         header += '\x00\x01\x00\x01\x01\x00\x00\x00'
@@ -339,7 +364,6 @@ class rmpConverter(object):
         tlm.seek(val-1, 0)
         tlm.write('\0')
         tlm.close()
-        self.rmpfile.append_from_file(tlmname, self.tempdir + '/' + tlmname)
 
     def run(self):
         self.rmpfile = rmpFile(self.outfile)
@@ -347,7 +371,6 @@ class rmpConverter(object):
         self.craft_resourse_files()
         for rmap in self.maps:
             self.craft_tiles(rmap)
-            self.craft_a00(rmap)
         self.craft_description_file()
         self.craft_ini_file()
         self.rmpfile.finish()
