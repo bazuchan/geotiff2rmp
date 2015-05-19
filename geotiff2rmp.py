@@ -11,6 +11,7 @@ import math
 import shutil
 import io
 from PIL import Image
+from optparse import OptionParser
 
 BS = 64*1024
 
@@ -377,8 +378,17 @@ class rmpConverter(object):
         shutil.rmtree(self.tempdir)
  
 if __name__=='__main__':
-    converter = rmpConverter('test.rmp', 'test', 'baz')
-    for mapfile in ['test.tiff']:
+    usage = "usage: %prog [options] <input map1> [input map2] ..."
+    parser = OptionParser(usage=usage)
+    parser.add_option("-o", "--outfile", dest="rmpfile", help="write result to rmp file")
+    parser.add_option("-g", "--group", dest="group", help="map group [default: %default]", default='Map')
+    parser.add_option("-p", "--provider", dest="prov", help="map provider [default: %default]", default='geotiff2rmp.py')
+    (options, args) = parser.parse_args()
+    if not options.rmpfile or len(args)<1:
+        parser.print_usage()
+        sys.exit(-1)
+    converter = rmpConverter(options.rmpfile, options.group, options.prov)
+    for mapfile in args:
         rmap = mapFile(mapfile)
         converter.add_map(rmap)
     converter.run()
