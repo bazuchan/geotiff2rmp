@@ -305,7 +305,7 @@ class rmpConverter(object):
                         break
                 if len(blocks)<=block:
                     blocks.append(0)
-                offset = 0x105c + 0x7c8*block + 8 + 16 + blocks[block]
+                offset = 0x105c + 0x7c8*block + 8 + 16 * blocks[block]
                 tlm.seek(offset, 0)
                 tlm.write(struct.pack('IIII', x, y, 0, offsets[done]))
                 blocks[block] += 1
