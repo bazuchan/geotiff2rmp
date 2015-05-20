@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 import sys
-import gdal
 import re
 import tempfile
 import os
@@ -21,39 +20,144 @@ class MapError(Exception):
     def __str__(self):
         return repr(self.value)
 
+def proj2datum(x):
+    m = re.search('DATUM\["([^"]+)"', x, re.I)
+    if m:
+        return m.group(1).upper()
+    return None
+
+def gdalinfo_shell(mapfile):
+    gdal_info = os.popen('gdalinfo %s' % (mapfile)).readlines()
+    datum = None
+    upper_left = None
+    bottom_right = None
+    size = None
+    interp = ''
+    raw_scale = None
+    for line in gdal_info:
+        m = re.search('^\s+DATUM\["([^"]+)"', line)
+        if m:
+            datum = m.group(1)
+        m = re.search('^Upper Left\s+\(\s*([0-9.,-]+),\s*([0-9.,-]+)\s*\)', line)
+        if m:
+            upper_left = (float(m.group(1)), -float(m.group(2)))
+        m = re.search('^Lower Right\s+\(\s*([0-9.,-]+),\s*([0-9.,-]+)\s*\)', line)
+        if m:
+            bottom_right = (float(m.group(1)), -float(m.group(2)))
+        m = re.search('^Pixel Size\s+=\s+\(\s*([0-9.,-]+),\s*([0-9.,-]+)\s*\)', line)
+        if m:
+            raw_scale = (float(m.group(1)), float(m.group(2)))
+        m = re.search('^Size\s+is\s+(\d+),\s*(\d+)($|[^0-9])', line)
+        if m:
+            size = (int(m.group(1)), int(m.group(2)))
+        m = re.search('ColorInterp=Palette', line)
+        if m:
+            interp = ' -expand rgb '
+        m = re.search('^Band\s+(\d+)\s+.*ColorInterp=(Red|Green|Blue)', line)
+        if m:
+            interp += ' -b %s ' % (m.group(1))
+    for i in [datum, size, upper_left, bottom_right, raw_scale, interp]:
+        if not i:
+            return None
+    return (datum, size, upper_left, bottom_right, raw_scale, interp)
+
+def gdalinfo_gdal(mapfile):
+    tmp = gdal.Open(mapfile)
+    proj = tmp.GetProjection()
+    tran = tmp.GetGeoTransform()
+    size = (tmp.RasterXSize, tmp.RasterYSize)
+    datum = proj2datum(proj)
+    interp = ' '
+    for i in range(1, 5):
+        try:
+            raw_interp = tmp.GetRasterBand(i).GetRasterColorInterpretation()
+        except:
+            break
+        if raw_interp==gdal.GCI_PaletteIndex:
+            interp = ' -expand rgb '
+            break
+        elif raw_interp in [gdal.GCI_RedBand, gdal.GCI_GreenBand, gdal.GCI_BlueBand]:
+            interp += '-b %u ' % (i)
+    upper_left = (tran[0], -tran[3])
+    bottom_right = (tran[0]+tran[1]*size[0]+tran[2]*size[1], -(tran[3]+tran[4]*size[0]+tran[5]*size[1]))
+    raw_scale = (tran[1], tran[5])
+    return (datum, size, upper_left, bottom_right, raw_scale, interp)
+
+def gdalinfo_rasterio(mapfile):
+    with rasterio.open(mapfile) as src:
+        interp = None
+        tran = src.get_transform()
+        proj = src.crs_wkt
+        size = (src.width, src.height)
+        datum = proj2datum(proj)
+        upper_left = (tran[0], -tran[3])
+        bottom_right = (tran[0]+tran[1]*size[0]+tran[2]*size[1], -(tran[3]+tran[4]*size[0]+tran[5]*size[1]))
+        raw_scale = (tran[1], tran[5])
+        return (datum, size, upper_left, bottom_right, raw_scale, interp)
+
+def gdal_translate_shell(infile, outfile, jpeg_quality, x, y, tw, th, interp = None):
+    os.system('gdal_translate -of JPEG' + interp + '-co QUALITY=%u ' % (jpeg_quality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + infile + ' ' + outfile + ' >/dev/null')
+
+def gdal_translate_rasterio(infile, outfile, jpeg_quality, x, y, tw, th, interp = None):
+    with rasterio.open(infile) as src:
+        bands = src.indexes
+        data = src.read(window=((y, y+th), (x, x+tw)))
+        if len(data)==1:
+            colormap = src.colormap(bands[0])
+            vec = numpy.vectorize(lambda z:colormap[z], otypes=[numpy.uint8]*4) 
+            tmp = vec(data[0])
+            bands = range(1, 4)
+            data = numpy.array(tmp[:3])
+    with rasterio.open(outfile, 'w', driver='JPEG', width=tw, height=th, count=len(data), dtype=numpy.uint8, quality=jpeg_quality) as dst:
+        dst.write(data, bands)
+
+def progress(percent):
+    sp = '%.1f%%' % (percent)
+    ln = int(float(percent)*70/float(100))
+    if ln>len(sp):
+        lo = 70-ln
+        ln -= len(sp)
+    else:
+        lo = 70-ln-len(sp)
+    sys.stderr.write('\r['+'='*ln+sp+'-'*lo+']')
+    if percent==100:
+        sys.stderr.write('\n')
+
+try:
+    import rasterio
+    import numpy
+    gdalinfo = gdalinfo_rasterio
+    gdal_translate = gdal_translate_rasterio
+except:
+    try:
+        import gdal
+        gdalinfo = gdalinfo_gdal
+        gdal_translate = gdal_translate_shell
+    except:
+        gdalinfo = gdalinfo_shell
+        gdal_translate = gdal_translate_shell
+
 class mapFile(object):
     def __init__(self, filename):
         self.filename = filename
         try:
-            tmp = gdal.Open(filename)
-            self.proj = tmp.GetProjection()
-            self.tran = tmp.GetGeoTransform()
-            self.size = (tmp.RasterXSize, tmp.RasterYSize)
+            info = gdalinfo(filename)
         except:
             raise MapError('Cant read file "%s" as a map' % (filename))
+        if info[0]!='WGS_1984':
+            raise MapError('Map "%s" is not in WGS_1984 datum' % (filename))
+        self.size = info[1]
         if self.size[0]<256 or self.size[1]<256:
             raise MapError('Map image "%s" should be larger than 256x256 pixels' % (filename))
-        if self.proj2datum(self.proj)!='WGS_1984':
-            raise MapError('Map "%s" is not in WGS_1984 datum' % (filename))
-        self.interp = ' '
-        for i in range(1, 4):
-            try:
-                interp = tmp.GetRasterBand(i).GetRasterColorInterpretation()
-            except:
-                break
-            if interp==gdal.GCI_PaletteIndex:
-                self.interp = ' -expand rgb '
-                break
-            elif interp in [gdal.GCI_RedBand, gdal.GCI_GreenBand, gdal.GCI_BlueBand]:
-                self.interp += '-b %u ' % (i)
-        self.top_left = (self.tran[0], -self.tran[3])
-        self.bottom_right = (self.tran[0]+self.tran[1]*self.size[0]+self.tran[2]*self.size[1], -(self.tran[3]+self.tran[4]*self.size[0]+self.tran[5]*self.size[1]))
-        self.scale = (self.tran[1]*256, self.tran[5]*256)
+        self.top_left = info[2]
+        self.bottom_right = info[3]
+        self.raw_scale = info[4]
+        self.scale = (self.raw_scale[0]*256, self.raw_scale[1]*256)
+        self.interp = info[5]
         self.first_tile = self.get_first_tile()
         self.diff = self.get_tile_diff()
         self.size_in_tiles = self.get_size_in_tiles()
-        del tmp
-   
+
     def get_size_in_tiles(self):
         tilew = int(math.ceil((self.size[0]-self.diff[0])/float(256))+1)
         tileh = int(math.ceil((self.size[1]-self.diff[1])/float(256))+1)
@@ -65,13 +169,13 @@ class mapFile(object):
             tx = tx - 180
         else:
             tx = -180 - tx
-        diffx = 256 - int(round(abs((self.top_left[0] - tx)/self.tran[1])))
+        diffx = 256 - int(round(abs((self.top_left[0] - tx)/self.raw_scale[0])))
         ty = self.first_tile[1]*self.scale[1]
         if ty>0:
             ty = ty - 90
         else:
             ty = -90 - ty
-        diffy = 256 - int(round(abs((self.top_left[1] - ty)/self.tran[5])))
+        diffy = 256 - int(round(abs((self.top_left[1] - ty)/self.raw_scale[1])))
         return (diffx, diffy)
 
     def get_first_tile(self):
@@ -106,13 +210,6 @@ class mapFile(object):
                 first_tile_y = i
                 break
         return (first_tile_x, first_tile_y)
-
-    @staticmethod
-    def proj2datum(x):
-        m = re.search('DATUM\["([^"]+)"', x, re.I)
-        if m:
-            return m.group(1).upper()
-        return None
 
 class rmpAppender(object):
     def __init__(self, rmpfile, filename):
@@ -192,12 +289,13 @@ class rmpFile(object):
         os.unlink(self.filename+'.tmp')
 
 class rmpConverter(object):
-    def __init__(self, outfile, map_group, map_prov, jpeg_quality = 75, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
+    def __init__(self, outfile, map_group, map_prov, jpeg_quality = 75, show_progress = False, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
         self.maps = []
         self.outfile = outfile
         self.map_group = map_group
         self.map_prov = map_prov
         self.jpeg_quality = jpeg_quality
+        self.show_progress = show_progress
         self.resdir = resdir
         self.tempdir = tempdir
 
@@ -280,12 +378,13 @@ class rmpConverter(object):
         offsets = [4]
 
         for ix in range(0, rmap.size_in_tiles[0]):
+            if self.show_progress:
+                progress(100*ix/float(rmap.size_in_tiles[0]))
             for iy in range(0, rmap.size_in_tiles[1]):
                 (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
                 jtile = os.path.join(self.tempdir, 'tile.jpg')
-                print 'gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpeg_quality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile
-                os.system('gdal_translate -of JPEG' + rmap.interp + '-co QUALITY=%u ' % (self.jpeg_quality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + rmap.filename + ' ' + jtile)
+                gdal_translate(rmap.filename, jtile, self.jpeg_quality, x, y, tw, th, rmap.interp)
                 tile = open(jtile).read()
                 if xpad!=0 or ypad!=0:
                     tile = self.crop_image(tile, tw, th, xpad, ypad)
@@ -293,6 +392,8 @@ class rmpConverter(object):
                 a00.write(tile)
                 offsets.append(offsets[-1] + len(tile) + 4)
         a00.close()
+        if self.show_progress:
+            progress(100)
 
         tlmname = 'topo%u.tlm' % (idx)
         tlm = self.rmpfile.get_appender(tlmname)
@@ -387,7 +488,7 @@ if __name__=='__main__':
     if not options.rmpfile or len(args)<1:
         parser.print_usage()
         sys.exit(-1)
-    converter = rmpConverter(options.rmpfile, options.group, options.prov)
+    converter = rmpConverter(options.rmpfile, options.group, options.prov, show_progress=True)
     for mapfile in args:
         rmap = mapFile(mapfile)
         converter.add_map(rmap)
