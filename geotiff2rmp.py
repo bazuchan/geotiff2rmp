@@ -118,6 +118,7 @@ def progress(percent):
         lo = 70-ln
         ln -= len(sp)
     else:
+        ln = 0
         lo = 70-ln-len(sp)
     sys.stderr.write('\r['+'='*ln+sp+'-'*lo+']')
     if percent==100:
@@ -154,9 +155,12 @@ class mapFile(object):
         self.raw_scale = info[4]
         self.scale = (self.raw_scale[0]*256, self.raw_scale[1]*256)
         self.interp = info[5]
-        self.first_tile = self.get_first_tile()
+        (self.first_tile, self.first_tile_coord) = self.get_first_tile()
         self.diff = self.get_tile_diff()
         self.size_in_tiles = self.get_size_in_tiles()
+        max_tiles = tlmFile().get_max_num_tiles()
+        self.num_topos = (self.size_in_tiles[0]*self.size_in_tiles[1]+max_tiles-1)/max_tiles
+        self.topo_len = max_tiles/self.size_in_tiles[1]
 
     def get_size_in_tiles(self):
         tilew = int(math.ceil((self.size[0]-self.diff[0])/float(256))+1)
@@ -192,6 +196,7 @@ class mapFile(object):
             else:
                 cmax = cmax - 180
             if cmin<=self.top_left[0] and self.top_left[0]<cmax:
+                first_tile_lat = cmin
                 first_tile_x = i
                 break
         y = int(math.ceil((self.top_left[1]+90)/(abs(self.scale[1])))-10)
@@ -207,9 +212,10 @@ class mapFile(object):
             else:
                 cmax = cmax - 90
             if cmin<=self.top_left[1] and self.top_left[1]<cmax:
+                first_tile_lon = cmin
                 first_tile_y = i
                 break
-        return (first_tile_x, first_tile_y)
+        return ((first_tile_x, first_tile_y), (first_tile_lat, first_tile_lon))
 
 class rmpAppender(object):
     def __init__(self, rmpfile, filename):
@@ -228,6 +234,9 @@ class rmpAppender(object):
             self.fileio.seek(pos, 1)
         elif whence==2:
             self.fileio.seek(pos, 2)
+
+    def tell(self):
+        return self.fileio.tell()-self.start
 
     def close(self):
         self.fileio.seek(0, 2)
@@ -288,6 +297,122 @@ class rmpFile(object):
         self.rmpfile_tmp.close()
         os.unlink(self.filename+'.tmp')
 
+
+class tlmFile(object):
+    def __init__(self, tlm=None, rmap=None, tiles_offset=None, tiles_size=None):
+        self.tlm = tlm
+        self.rmap = rmap
+        self.tiles_size = tiles_size
+        self.tiles_offset = tiles_offset
+        self.blocks_start = 0xf5c
+        self.block_size = 0x7c8
+        self.header_len = 0x100
+        self.tiles_per_block = 99
+        self.reserve = 29
+        self.real_tiles_per_block = self.tiles_per_block - self.reserve
+        if rmap==None:
+            return
+        self.calc_num_blocks()
+        self.block = 0
+        self.idxblock = 1
+        self.blocks = [0]*self.num_data_blocks
+        (self.top_left, self.bottom_right) = self.calc_corners()
+
+    def calc_num_blocks(self):
+        self.num_tiles = self.tiles_size[0]*self.tiles_size[1]
+        self.num_data_blocks = (self.num_tiles+self.real_tiles_per_block-1)/self.real_tiles_per_block
+        if self.num_data_blocks>1:
+            self.num_data_blocks += 1
+            self.num_index_blocks = (self.num_data_blocks+self.real_tiles_per_block-1)/self.real_tiles_per_block
+            if self.num_index_blocks>1:
+                raise MapError('TLM file seems to not support more than 1 index block')
+            self.first_block_offset = self.blocks_start + self.block_size
+        else:
+            self.num_index_blocks = 0
+            self.first_block_offset = self.blocks_start
+        self.filesize = 0x105c + self.block_size*(self.num_data_blocks+2)
+
+    def calc_corners(self):
+        tlx = (self.rmap.first_tile[0]+self.tiles_offset[0])*abs(self.rmap.scale[0])-180
+        tly = (self.rmap.first_tile[1]+self.tiles_offset[1])*abs(self.rmap.scale[1])-90
+        brx = (self.rmap.first_tile[0]+self.tiles_offset[0]+self.tiles_size[0])*abs(self.rmap.scale[0])-180
+        bry = (self.rmap.first_tile[1]+self.tiles_offset[1]+self.tiles_size[1])*abs(self.rmap.scale[1])-90
+        return ((tlx, tly), (brx, bry))
+
+    def get_max_num_tiles(self):
+        return self.real_tiles_per_block*self.real_tiles_per_block
+
+    def write_header(self):
+        header = struct.pack('I', 1)
+        header += struct.pack('I', self.num_tiles)
+        header += struct.pack('HH', 256, 256)
+        header += struct.pack('I', 1)
+        header += struct.pack('dd', abs(self.rmap.scale[1]), abs(self.rmap.scale[0]))
+        header += struct.pack('dd', self.top_left[0], self.top_left[1])
+        header += struct.pack('dd', self.bottom_right[0], self.bottom_right[1])
+        header += '\0'*(0x98-len(header))
+        # another 256?
+        header += struct.pack('HH', 256, 0)
+        header += struct.pack('I', self.filesize)
+        header += '\0'*(0x100-len(header))
+        header += struct.pack('I', 1)
+        header += struct.pack('I', self.tiles_per_block)
+        header += struct.pack('I', self.first_block_offset)
+        header += '\0'*(self.blocks_start-len(header))
+        self.tlm.write(header)
+
+    def get_block_offset(self, block, idx):
+        offset = self.blocks_start + self.header_len + self.block_size*block + 8 + 16 * idx
+        return offset
+
+    def get_next_block(self):
+        if self.blocks[self.block]<self.real_tiles_per_block:
+            self.blocks[self.block] +=1
+            return (self.block, self.blocks[self.block]-1)
+        else:
+            if self.block==0:
+                self.block = self.num_index_blocks + 1
+            else:
+                self.block += 1
+            if self.blocks[self.idxblock]>=self.real_tiles_per_block:
+                self.idxblock += 1
+            self.blocks[self.idxblock] += 1
+            return (self.idxblock, self.blocks[self.idxblock]-1)
+
+    def add_tile(self, x, y, addr):
+        next_block = self.get_next_block()
+        offset = self.get_block_offset(*next_block)
+        self.tlm.seek(offset, 0)
+        self.tlm.write(struct.pack('IIII', x, y, 0, addr))
+
+    def write_blocks_headers(self):
+        for i in range(1, self.num_index_blocks+1):
+            offset = self.blocks_start + self.block_size*i + self.header_len
+            self.tlm.seek(offset, 0)
+            self.tlm.write(struct.pack('IHH', self.num_tiles, self.blocks[i], 0))
+
+        for i in [0] + range(self.num_index_blocks+1, self.num_data_blocks):
+            offset = self.blocks_start + self.block_size*i + self.header_len
+            self.tlm.seek(offset, 0)
+            self.tlm.write(struct.pack('IHH', self.blocks[i], self.blocks[i], 1))
+
+    def write_blocks_links(self):
+        for i in range(0, self.num_index_blocks):
+            self.tlm.seek(self.blocks_start +  self.block_size*(i+1) + self.header_len + 8 + 16*self.tiles_per_block, 0)
+            self.tlm.write(struct.pack('I', self.blocks_start + self.block_size*i))
+            for j in range(0, self.real_tiles_per_block):
+                if j>self.blocks[i+1]-1:
+                    break
+                val = self.blocks_start + self.block_size*(j+2)
+                self.tlm.write(struct.pack('I', val))
+
+    def finish(self):
+        self.write_blocks_headers()
+        self.write_blocks_links()
+        self.tlm.seek(self.filesize-1, 0)
+        self.tlm.write('\0')
+        self.tlm.close()
+
 class rmpConverter(object):
     def __init__(self, outfile, map_group, map_prov, jpeg_quality = 75, show_progress = False, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
         self.maps = []
@@ -298,6 +423,7 @@ class rmpConverter(object):
         self.show_progress = show_progress
         self.resdir = resdir
         self.tempdir = tempdir
+        self.idx = 0
 
     def add_map(self, rmap):
         self.maps.append(rmap)
@@ -324,9 +450,12 @@ class rmpConverter(object):
         self.rmpfile.append_from_string('cvg_map.msf', descfile)
 
     def craft_ini_file(self):
-        inifile = '[T_Layers]\r\n' 
+        inifile = '[T_Layers]\r\n'
+        idx = 0
         for i in range(0, len(self.maps)):
-            inifile += '%u=TOPO%u\r\n' % (i, i)
+            for j in range(0, self.maps[i].num_topos):
+                inifile += '%u=TOPO%u\r\n' % (idx, idx)
+                idx += 1
         inifile += '\0'
         self.rmpfile.append_from_string('rmp.ini', inifile)
 
@@ -368,19 +497,18 @@ class rmpConverter(object):
         new = new_img.save(o_img, 'JPEG')
         return o_img.getvalue()
 
-    def craft_tiles(self, rmap):
-        num_tiles = rmap.size_in_tiles[0]*rmap.size_in_tiles[1]
-        idx = self.maps.index(rmap)
+    def craft_tiles(self, rmap, idx, tiles_offset, tiles_size):
+        num_tiles = tiles_size[0]*tiles_size[1]
 
         a00name = 'topo%u.a00' % (idx)
         a00 = self.rmpfile.get_appender(a00name)
         a00.write(struct.pack('I', num_tiles))
         offsets = [4]
 
-        for ix in range(0, rmap.size_in_tiles[0]):
+        for ix in range(tiles_offset[0], tiles_size[0]):
             if self.show_progress:
                 progress(100*ix/float(rmap.size_in_tiles[0]))
-            for iy in range(0, rmap.size_in_tiles[1]):
+            for iy in range(tiles_offset[1], tiles_size[1]):
                 (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
                 jtile = os.path.join(self.tempdir, 'tile.jpg')
@@ -392,87 +520,36 @@ class rmpConverter(object):
                 a00.write(tile)
                 offsets.append(offsets[-1] + len(tile) + 4)
         a00.close()
-        if self.show_progress:
+        if self.show_progress and tiles_offset[0]+tiles_size[0]==rmap.size_in_tiles[0]:
             progress(100)
+        return offsets
 
+    def craft_index(self, rmap, idx, offsets, tiles_offset, tiles_size):
         tlmname = 'topo%u.tlm' % (idx)
-        tlm = self.rmpfile.get_appender(tlmname)
-        header = '\x01\x00\x00\x00'
-        header += struct.pack('I', num_tiles)
-        header += '\x00\x01\x00\x01\x01\x00\x00\x00'
-        header += struct.pack('dd', abs(rmap.scale[1]), abs(rmap.scale[0]))
-        header += struct.pack('dd', rmap.top_left[0], rmap.top_left[1])
-        header += struct.pack('dd', rmap.bottom_right[0], rmap.bottom_right[1])
-        header += '\0'*(0x99-len(header)) + '\x01'
-        header += '\0'*(0x100-len(header)) + '\x01'
-        header += '\0'*(0x104-len(header)) + '\x63'
-        tlm.write(header)
+        tlmfile = tlmFile(self.rmpfile.get_appender(tlmname), rmap, tiles_offset, tiles_size)
+        tlmfile.write_header()
 
-        num_blocks = int(math.ceil(num_tiles/float(70)))
-        if num_blocks>1:
-            num_blocks += 1
-            num_addblocks = num_blocks - 2
-        else:
-            num_addblocks = 0
-
-        blocks = []
         done = 0
-        for ix in range(0, rmap.size_in_tiles[0]):
-            for iy in range(0, rmap.size_in_tiles[1]):
+        for ix in range(tiles_offset[0], tiles_size[0]):
+            for iy in range(tiles_offset[1], tiles_size[1]):
                 x = rmap.first_tile[0] + ix
                 y = rmap.first_tile[1] + iy
-                block = 0
-                for j in range(2, num_blocks):
-                    if done>(j-1)*70+j-2 and done<=j*70+j-2:
-                        block = j
-                        break
-                for j in range(0, num_blocks):
-                    if done==70*(j+1)+j:
-                        block = 1
-                        break
-                if len(blocks)<=block:
-                    blocks.append(0)
-                offset = 0x105c + 0x7c8*block + 8 + 16 * blocks[block]
-                tlm.seek(offset, 0)
-                tlm.write(struct.pack('IIII', x, y, 0, offsets[done]))
-                blocks[block] += 1
+                tlmfile.add_tile(x, y, offsets[done])
                 done += 1
 
-        for i in range(0, num_blocks):
-            offset = 0x105c + 0x7c8*i
-            tlm.seek(offset, 0)
-            if i==1:
-                tlm.write(struct.pack('II', num_tiles, blocks[i]))
-            else:
-                tlm.write(struct.pack('IHH', blocks[i], blocks[i], 1))
-
-        if num_addblocks>0:
-            tlm.seek(0x108, 0)
-            tlm.write('\x24\x17\x00\x00')
-            tlm.seek(0x1E5C, 0)
-            tlm.write('\x5c\x0f\x00\x00')
-            for i in range(2, num_blocks):
-                offset = 0x1E5C + (i-1)*4
-                val = 0x0F5C + 0x0f90 + 0x07c8*(i-2)
-                tlm.seek(offset, 0)
-                tlm.write(struct.pack('I', val))
-        else:
-            tlm.seek(0x108, 0)
-            tlm.write('\x5c\x0f\x00\x00')
-
-        val = 0x105c + 0x7c8*(num_blocks+2)
-        tlm.seek(0x9c, 0)
-        tlm.write(struct.pack('I', val))
-        tlm.seek(val-1, 0)
-        tlm.write('\0')
-        tlm.close()
+        tlmfile.finish()
 
     def run(self):
         self.rmpfile = rmpFile(self.outfile)
         self.prepare_tmpdir()
         self.craft_resourse_files()
         for rmap in self.maps:
-            self.craft_tiles(rmap)
+            for topo in range(0, rmap.num_topos):
+                tiles_offset = (rmap.topo_len*topo, 0)
+                tiles_size = (min(rmap.size_in_tiles[0]-tiles_offset[0], rmap.topo_len), rmap.size_in_tiles[1])
+                offsets = self.craft_tiles(rmap, self.idx, tiles_offset, tiles_size)
+                self.craft_index(rmap, self.idx, offsets, tiles_offset, tiles_size)
+                self.idx += 1
         self.craft_description_file()
         self.craft_ini_file()
         self.rmpfile.finish()
