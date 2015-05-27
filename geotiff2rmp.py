@@ -257,7 +257,7 @@ class rmpFile(object):
         self.files = []
         self.prealloc_files = 256
         self.header_len = 40+24*self.prealloc_files
-        self.rmpfile.seek(self.offset, 0)
+        self.rmpfile.seek(self.header_len, 0)
         self.offset = 0
 
     def get_appender(self, filename):
@@ -281,10 +281,7 @@ class rmpFile(object):
 
     def finish(self):
         if len(self.files)>self.prealloc_files:
-            try:
-                tmpfile = open(self.filename+'.tmp', 'w+')
-            except:
-                raise MapError('Cant open tmp file "%s.tmp" for writing' % (self.filename))
+            tmpfile = open(self.filename+'.tmp', 'w+')
             (rmpfile_old, self.rmpfile) = (self.rmpfile, tmpfile)
         self.rmpfile.seek(0, 0)
         numfiles = len(self.files)
@@ -422,7 +419,7 @@ class tlmFile(object):
         self.tlm.close()
 
 class rmpConverter(object):
-    def __init__(self, outfile, map_group, map_prov, jpeg_quality = 75, show_progress = False, resdir = 'bin_res', tempdir = tempfile.mkdtemp('', 'rmp')):
+    def __init__(self, outfile, map_group, map_prov, jpeg_quality = 75, show_progress = False, resdir = 'bin_res'):
         self.maps = []
         self.outfile = outfile
         self.map_group = map_group
@@ -430,17 +427,11 @@ class rmpConverter(object):
         self.jpeg_quality = jpeg_quality
         self.show_progress = show_progress
         self.resdir = resdir
-        self.tempdir = tempdir
+        self.temp_tile = self.outfile + '.tile0'
         self.idx = 0
 
     def add_map(self, rmap):
         self.maps.append(rmap)
-
-    def prepare_tmpdir(self):
-        try:
-            os.makedirs(self.tempdir)
-        except:
-            pass
 
     def craft_description_file(self):
         descfile = ';Map Support File : Contains Meta Data Information about the Image\r\n'
@@ -519,9 +510,8 @@ class rmpConverter(object):
             for iy in range(tiles_offset[1], tiles_offset[1]+tiles_size[1]):
                 (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
-                jtile = os.path.join(self.tempdir, 'tile.jpg')
-                gdal_translate(rmap.filename, jtile, self.jpeg_quality, x, y, tw, th, rmap.interp)
-                tile = open(jtile).read()
+                gdal_translate(rmap.filename, self.temp_tile, self.jpeg_quality, x, y, tw, th, rmap.interp)
+                tile = open(self.temp_tile).read()
                 if xpad!=0 or ypad!=0:
                     tile = self.crop_image(tile, tw, th, xpad, ypad)
                 a00.write(struct.pack('I', len(tile)))
@@ -549,7 +539,6 @@ class rmpConverter(object):
 
     def run(self):
         self.rmpfile = rmpFile(self.outfile)
-        self.prepare_tmpdir()
         self.craft_resourse_files()
         for rmap in self.maps:
             for topo in range(0, rmap.num_topos):
@@ -561,7 +550,6 @@ class rmpConverter(object):
         self.craft_description_file()
         self.craft_ini_file()
         self.rmpfile.finish()
-        shutil.rmtree(self.tempdir)
  
 if __name__=='__main__':
     usage = "usage: %prog [options] <input map1> [input map2] ..."
