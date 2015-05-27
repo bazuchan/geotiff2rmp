@@ -308,7 +308,7 @@ class tlmFile(object):
         self.block_size = 0x7c8
         self.header_len = 0x100
         self.tiles_per_block = 99
-        self.reserve = 29
+        self.reserve = 19
         self.real_tiles_per_block = self.tiles_per_block - self.reserve
         if rmap==None:
             return
@@ -340,7 +340,7 @@ class tlmFile(object):
         return ((tlx, tly), (brx, bry))
 
     def get_max_num_tiles(self):
-        return self.real_tiles_per_block*self.real_tiles_per_block
+        return (self.real_tiles_per_block-1)*self.real_tiles_per_block
 
     def write_header(self):
         header = struct.pack('I', 1)
@@ -505,10 +505,10 @@ class rmpConverter(object):
         a00.write(struct.pack('I', num_tiles))
         offsets = [4]
 
-        for ix in range(tiles_offset[0], tiles_size[0]):
+        for ix in range(tiles_offset[0], tiles_offset[0]+tiles_size[0]):
             if self.show_progress:
                 progress(100*ix/float(rmap.size_in_tiles[0]))
-            for iy in range(tiles_offset[1], tiles_size[1]):
+            for iy in range(tiles_offset[1], tiles_offset[1]+tiles_size[1]):
                 (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
                 jtile = os.path.join(self.tempdir, 'tile.jpg')
@@ -530,8 +530,8 @@ class rmpConverter(object):
         tlmfile.write_header()
 
         done = 0
-        for ix in range(tiles_offset[0], tiles_size[0]):
-            for iy in range(tiles_offset[1], tiles_size[1]):
+        for ix in range(tiles_offset[0], tiles_offset[0]+tiles_size[0]):
+            for iy in range(tiles_offset[1],tiles_offset[1]+tiles_size[1]):
                 x = rmap.first_tile[0] + ix
                 y = rmap.first_tile[1] + iy
                 tlmfile.add_tile(x, y, offsets[done])

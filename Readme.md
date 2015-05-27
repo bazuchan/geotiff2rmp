@@ -12,7 +12,7 @@ Dependencies:
 Restrictions:
 	- input map should be in WGS84 projection
 	- works only on linux (other OS untested)
-	- license is unknown, due to no license file in RMPCreator project
+	- license is unclear, due to no license file in RMPCreator project
 
 Example usage:
 	- Convert map to WGS84 projection: gdalwarp -t_srs WGS84 -tr 0.0001 0.00005 -overwrite Arbalet-MO_All_300DPI.map arbalet_wgs84.tiff
