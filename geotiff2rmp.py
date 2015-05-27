@@ -220,7 +220,7 @@ class mapFile(object):
 class rmpAppender(object):
     def __init__(self, rmpfile, filename):
         self.rmpfile = rmpfile
-        self.fileio = self.rmpfile.rmpfile_tmp
+        self.fileio = self.rmpfile.rmpfile
         self.filename = filename
         self.start = self.fileio.tell()
 
@@ -244,17 +244,20 @@ class rmpAppender(object):
         self.rmpfile.files.append((self.filename, self.rmpfile.offset, filesize))
         self.rmpfile.offset += filesize
         if filesize%2==1:
-            self.rmpfile.rmpfile_tmp.write('\0')
+            self.rmpfile.rmpfile.write('\0')
             self.rmpfile.offset += 1
 
 class rmpFile(object):
     def __init__(self, filename):
         self.filename = filename
         try:
-            self.rmpfile_tmp = open(filename+'.tmp', 'w+')
+            self.rmpfile = open(filename, 'w+')
         except:
-            raise MapError('Cant open tmp file "%s.tmp" for writing' % (filename))
+            raise MapError('Cant open rmp file "%s" for writing' % (filename))
         self.files = []
+        self.prealloc_files = 256
+        self.header_len = 40+24*self.prealloc_files
+        self.rmpfile.seek(self.offset, 0)
         self.offset = 0
 
     def get_appender(self, filename):
@@ -277,26 +280,31 @@ class rmpFile(object):
         appender.close()
 
     def finish(self):
-        try:
-            self.rmpfile = open(self.filename, 'w')
-        except:
-            raise MapError('Cant open result file for "%s" for writing' % (self.filename))
+        if len(self.files)>self.prealloc_files:
+            try:
+                tmpfile = open(self.filename+'.tmp', 'w+')
+            except:
+                raise MapError('Cant open tmp file "%s.tmp" for writing' % (self.filename))
+            (rmpfile_old, self.rmpfile) = (self.rmpfile, tmpfile)
+        self.rmpfile.seek(0, 0)
         numfiles = len(self.files)
         self.rmpfile.write(struct.pack('II', numfiles, numfiles))
         for i in range(0, numfiles):
             name = self.files[i][0].rsplit('.', 1)
             metadata =(name[0]+'\0'*9)[:9] + (name[1]+'\0'*7)[:7]
-            metadata += struct.pack('II', self.files[i][1]+40+24*numfiles, self.files[i][2])
+            metadata += struct.pack('II', self.files[i][1]+max(self.header_len, 40+24*numfiles), self.files[i][2])
             self.rmpfile.write(metadata)
         self.rmpfile.write('\xe5\xe5MAGELLAN\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-        self.rmpfile_tmp.seek(0, 0)
-        for i in range(0, (self.offset+BS-1)/BS):
-            self.rmpfile.write(self.rmpfile_tmp.read(BS))
+        if len(self.files)>self.prealloc_files:
+            rmpfile_old.seek(self.header_len, 0)
+            for i in range(0, (self.offset+BS-1)/BS):
+                self.rmpfile.write(rmpfile_old.read(BS))
+            rmpfile_old.close()
+            os.unlink(self.filename)
+            os.rename(self.filename+'.tmp', self.filename)
+        self.rmpfile.seek(0, 2)
         self.rmpfile.write('MAGELLAN};')
         self.rmpfile.close()
-        self.rmpfile_tmp.close()
-        os.unlink(self.filename+'.tmp')
-
 
 class tlmFile(object):
     def __init__(self, tlm=None, rmap=None, tiles_offset=None, tiles_size=None):
