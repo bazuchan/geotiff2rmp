@@ -550,6 +550,10 @@ class rmpConverter(object):
         self.craft_description_file()
         self.craft_ini_file()
         self.rmpfile.finish()
+        try:
+            os.unlink(self.temp_tile)
+        except:
+            pass
  
 if __name__=='__main__':
     usage = "usage: %prog [options] <input map1> [input map2] ..."
