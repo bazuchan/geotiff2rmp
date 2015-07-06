@@ -419,11 +419,16 @@ class tlmFile(object):
         self.tlm.close()
 
 class rmpConverter(object):
-    def __init__(self, outfile, map_group, map_prov, jpeg_quality = 75, show_progress = False, resdir = 'bin_res'):
+    def __init__(self, outfile, map_name, map_group, map_prov, map_ver, map_contact, map_copyright, map_copyright_file, jpeg_quality = 75, show_progress = False, resdir = 'bin_res'):
         self.maps = []
         self.outfile = outfile
+        self.map_name = map_name
         self.map_group = map_group
         self.map_prov = map_prov
+        self.map_ver = map_ver
+        self.map_contact = map_contact
+        self.map_copyright = map_copyright
+        self.map_copyright_file = map_copyright_file
         self.jpeg_quality = jpeg_quality
         self.show_progress = show_progress
         self.resdir = resdir
@@ -435,18 +440,27 @@ class rmpConverter(object):
 
     def craft_description_file(self):
         descfile = ';Map Support File : Contains Meta Data Information about the Image\r\n'
-        descfile += 'IMG_NAME = %s\r\n' % (self.outfile.replace('.rmp', ''))
+        descfile += 'IMG_NAME = %s\r\n' % (self.map_name)
         descfile += 'PRODUCT = %s\r\n' % (self.map_group)
         descfile += 'PROVIDER = %s\r\n' % (self.map_prov)
         descfile += 'IMG_DATE = %s\r\n' % (time.strftime('%d.%m.%Y %H:%M:%S'))
-        descfile += 'IMG_VERSION = 31\r\n'
-        descfile += 'Version = 31\r\n'
-        descfile += 'BUILD=\r\n'
-        descfile += 'VENDOR_ID = -1\r\n'
-        descfile += 'REGION_ID = -1\r\n'
+        descfile += 'IMG_VERSION = %s\r\n' % (self.map_ver)
+        descfile += 'CONTACT_INFO = %s\r\n' % (self.map_contact)
         descfile += 'MAP_TYPE = TNDB_RASTER_MAP\r\n'
+        descfile += 'MAP_COUNT = %u\r\n' % (self.idx)
+        descfile += 'COPY_RIGHT_LOCATION = cprt_txt.txt\r\n'
+        descfile += 'COPY_RIGHT_INFO = %s\r\n' % (self.map_copyright)
         descfile += 'ADDITIONAL_COMMENTS = created with geotiff2rmp.py\r\n'
         self.rmpfile.append_from_string('cvg_map.msf', descfile)
+
+    def craft_copyright_file(self):
+        if self.map_copyright_file:
+            try:
+                self.rmpfile.append_from_file('cprt_txt.txt', self.map_copyright_file)
+            except:
+                raise MapError('Cant read copyright file "%s"' % (self.map_copyright_file))
+        else:
+            self.rmpfile.append_from_string('cprt_txt.txt', self.map_copyright)
 
     def craft_ini_file(self):
         inifile = '[T_Layers]\r\n'
@@ -540,6 +554,7 @@ class rmpConverter(object):
     def run(self):
         self.rmpfile = rmpFile(self.outfile)
         self.craft_resourse_files()
+        self.craft_copyright_file()
         for rmap in self.maps:
             for topo in range(0, rmap.num_topos):
                 tiles_offset = (rmap.topo_len*topo, 0)
@@ -552,6 +567,8 @@ class rmpConverter(object):
         self.rmpfile.finish()
         try:
             os.unlink(self.temp_tile)
+            if os.path.exists(self.temp_tile+'.aux.xml'):
+                os.unlink(self.temp_tile+'.aux.xml')
         except:
             pass
  
@@ -559,13 +576,18 @@ if __name__=='__main__':
     usage = "usage: %prog [options] <input map1> [input map2] ..."
     parser = OptionParser(usage=usage)
     parser.add_option("-o", "--outfile", dest="rmpfile", help="write result to rmp file")
+    parser.add_option("-n", "--name", dest="name", help="map name [default: %default]", default='Map')
     parser.add_option("-g", "--group", dest="group", help="map group [default: %default]", default='Map')
-    parser.add_option("-p", "--provider", dest="prov", help="map provider [default: %default]", default='geotiff2rmp.py')
+    parser.add_option("-p", "--provider", dest="prov", help="map provider [default: %default]", default='Map')
+    parser.add_option("-v", "--version", dest="version", help="map version [default: %default]", default='31')
+    parser.add_option("-c", "--contact", dest="contact", help="map contact [default: %default]", default='Anonymous')
+    parser.add_option("-l", "--copyright", dest="copyright", help="map copyright [default: %default]", default='(C) Anonymous. License CC-BY-4.0.')
+    parser.add_option("-f", "--copyright-file", dest="copyrightfile", help="map copyright text file [default: none]", default='')
     (options, args) = parser.parse_args()
     if not options.rmpfile or len(args)<1:
         parser.print_usage()
         sys.exit(-1)
-    converter = rmpConverter(options.rmpfile, options.group, options.prov, show_progress=True)
+    converter = rmpConverter(options.rmpfile, options.name, options.group, options.prov, options.version, options.contact, options.copyright, options.copyrightfile, show_progress=True)
     for mapfile in args:
         rmap = mapFile(mapfile)
         converter.add_map(rmap)
