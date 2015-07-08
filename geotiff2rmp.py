@@ -96,7 +96,7 @@ def gdalinfo_rasterio(mapfile):
         return (datum, size, upper_left, bottom_right, raw_scale, interp)
 
 def gdal_translate_shell(infile, outfile, jpeg_quality, x, y, tw, th, interp = None):
-    os.system('gdal_translate -of JPEG' + interp + '-co QUALITY=%u ' % (jpeg_quality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + infile + ' ' + outfile + ' >/dev/null')
+    os.popen4('gdal_translate -of JPEG' + interp + '-co QUALITY=%u ' % (jpeg_quality) + '-srcwin %u %u %u %u ' % (x,y,tw,th) + infile + ' ' + outfile)[1].read()
 
 def gdal_translate_rasterio(infile, outfile, jpeg_quality, x, y, tw, th, interp = None):
     with rasterio.open(infile) as src:
@@ -251,7 +251,7 @@ class rmpFile(object):
     def __init__(self, filename):
         self.filename = filename
         try:
-            self.rmpfile = open(filename, 'w+')
+            self.rmpfile = open(filename, 'wb+')
         except:
             raise MapError('Cant open rmp file "%s" for writing' % (filename))
         self.files = []
@@ -265,7 +265,7 @@ class rmpFile(object):
 
     def append_from_file(self, targetname, sourcename):
         appender = self.get_appender(targetname)
-        rfile = open(sourcename)
+        rfile = open(sourcename, 'rb')
         while True:
             data = rfile.read(BS)
             appender.write(data)
@@ -281,7 +281,7 @@ class rmpFile(object):
 
     def finish(self):
         if len(self.files)>self.prealloc_files:
-            tmpfile = open(self.filename+'.tmp', 'w+')
+            tmpfile = open(self.filename+'.tmp', 'wb+')
             (rmpfile_old, self.rmpfile) = (self.rmpfile, tmpfile)
         self.rmpfile.seek(0, 0)
         numfiles = len(self.files)
@@ -494,7 +494,7 @@ class rmpConverter(object):
         return (x, w, pad)
 
     @staticmethod
-    def crop_image(str_img, tw, th, xpad, ypad):
+    def crop_image(img, tw, th, xpad, ypad):
         if xpad>=0:
             xcrop = 0
         else:
@@ -503,7 +503,7 @@ class rmpConverter(object):
             ycrop = 0
         else:
             ycrop = 256 - th
-        img = Image.open(io.BytesIO(str_img))
+        img = Image.open(img)
         new_img = Image.new("RGB", (256, 256))
         new_img.paste(img, (xcrop, ycrop))
         o_img = io.BytesIO()
@@ -525,9 +525,10 @@ class rmpConverter(object):
                 (x, tw, xpad) = self.get_tile_geometry(ix, rmap.diff[0], rmap.size[0])
                 (y, th, ypad) = self.get_tile_geometry(iy, rmap.diff[1], rmap.size[1])
                 gdal_translate(rmap.filename, self.temp_tile, self.jpeg_quality, x, y, tw, th, rmap.interp)
-                tile = open(self.temp_tile).read()
                 if xpad!=0 or ypad!=0:
-                    tile = self.crop_image(tile, tw, th, xpad, ypad)
+                    tile = self.crop_image(self.temp_tile, tw, th, xpad, ypad)
+                else:
+                    tile = open(self.temp_tile, 'rb').read()
                 a00.write(struct.pack('I', len(tile)))
                 a00.write(tile)
                 offsets.append(offsets[-1] + len(tile) + 4)
