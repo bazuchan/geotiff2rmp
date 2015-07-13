@@ -7,7 +7,7 @@ import math
 
 def tlm2text(tlmfile):
     tlmsize = os.stat(tlmfile).st_size
-    tlm = open(tlmfile)
+    tlm = open(tlmfile, 'rb')
     tlm.read(4)
     num_tiles = struct.unpack('I', tlm.read(4))[0]
     print 'Num tiles: %u' % (num_tiles)

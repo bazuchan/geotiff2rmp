@@ -7,7 +7,7 @@ import struct
 BS = 64*1024
 
 def unpack_rmp(rmpfile, upath):
-    rmp = open(rmpfile)
+    rmp = open(rmpfile, 'rb')
     (numfiles, numfiles) = struct.unpack('II', rmp.read(8))
     files = []
     for i in range(0, numfiles):
@@ -29,7 +29,7 @@ def unpack_rmp(rmpfile, upath):
             continue
         sys.stderr.write('Unpacking %s\n' % (i[0]))
         rmp.seek(i[1], 0)
-        w = open(os.path.join(upath, i[0]), 'w')
+        w = open(os.path.join(upath, i[0]), 'wb')
         for k in range(0, (i[2]+BS-1)/BS):
             data = rmp.read(min(i[2]-BS*k, BS))
             w.write(data)

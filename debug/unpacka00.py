@@ -8,7 +8,7 @@ BS = 64*1024
 
 def unpack_a00(a00file, upath):
     a00size = os.stat(a00file).st_size
-    a00 = open(a00file)
+    a00 = open(a00file, 'rb')
     numfiles = struct.unpack('I', a00.read(4))[0]
     files = []
     if not os.path.exists(upath):
@@ -20,7 +20,7 @@ def unpack_a00(a00file, upath):
         filename = ('%10u.jpg' % (filenum)).replace(' ', '0')
         sys.stderr.write('Unpacking %s\n' % (filename))
         filesize = struct.unpack('I', a00.read(4))[0]
-        w = open(os.path.join(upath, filename), 'w')
+        w = open(os.path.join(upath, filename), 'wb')
         for k in range(0, (filesize+BS-1)/BS):
             data = a00.read(min(filesize-BS*k, BS))
             w.write(data)
