@@ -129,14 +129,17 @@ try:
     import numpy
     gdalinfo = gdalinfo_rasterio
     gdal_translate = gdal_translate_rasterio
+    sys.stderr.write('Using rasterio module (Fast!)\n')
 except:
     try:
         import gdal
         gdalinfo = gdalinfo_gdal
         gdal_translate = gdal_translate_shell
+        sys.stderr.write('Using dgal module and binaries (Slow!)\n')
     except:
         gdalinfo = gdalinfo_shell
         gdal_translate = gdal_translate_shell
+        sys.stderr.write('Using dgal binaries (Slow!)\n')
 
 class mapFile(object):
     def __init__(self, filename):
@@ -338,10 +341,22 @@ class tlmFile(object):
         self.filesize = 0x105c + self.block_size*(self.num_data_blocks+2)
 
     def calc_corners(self):
-        tlx = (self.rmap.first_tile[0]+self.tiles_offset[0])*abs(self.rmap.scale[0])-180
-        tly = (self.rmap.first_tile[1]+self.tiles_offset[1])*abs(self.rmap.scale[1])-90
-        brx = (self.rmap.first_tile[0]+self.tiles_offset[0]+self.tiles_size[0])*abs(self.rmap.scale[0])-180
-        bry = (self.rmap.first_tile[1]+self.tiles_offset[1]+self.tiles_size[1])*abs(self.rmap.scale[1])-90
+        if self.tiles_offset and self.tiles_offset[0]>0:
+            tlx = (self.rmap.first_tile[0]+self.tiles_offset[0])*abs(self.rmap.scale[0])-180
+        else:
+            tlx = self.rmap.top_left[0]
+        if self.tiles_offset and self.tiles_offset[1]>0:
+            tly = (self.rmap.first_tile[1]+self.tiles_offset[1])*abs(self.rmap.scale[1])-90
+        else:
+            tly = self.rmap.top_left[1]
+        if self.tiles_size and self.tiles_size[0]<self.rmap.size_in_tiles[0]-self.tiles_offset[0]:
+            brx = (self.rmap.first_tile[0]+self.tiles_offset[0]+self.tiles_size[0])*abs(self.rmap.scale[0])-180
+        else:
+            brx = self.rmap.bottom_right[0]
+        if self.tiles_size and self.tiles_size[1]<self.rmap.size_in_tiles[1]-self.tiles_offset[1]:
+            bry = (self.rmap.first_tile[1]+self.tiles_offset[1]+self.tiles_size[1])*abs(self.rmap.scale[1])-90
+        else:
+            bry = self.rmap.bottom_right[1]
         return ((tlx, tly), (brx, bry))
 
     def get_max_num_tiles(self):
