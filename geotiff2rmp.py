@@ -282,6 +282,12 @@ class rmpFile(object):
         appender.write(content)
         appender.close()
 
+    def append_dir(self, rmpdir):
+        for rdir in os.walk(rmpdir):
+            for rfile in rdir[2]:
+                path = os.path.join(rdir[0], rfile)
+                self.append_from_file(rfile, path)
+
     def finish(self):
         if len(self.files)>self.prealloc_files:
             tmpfile = open(self.filename+'.tmp', 'wb+')
@@ -290,7 +296,7 @@ class rmpFile(object):
         numfiles = len(self.files)
         self.rmpfile.write(struct.pack('II', numfiles, numfiles))
         for i in range(0, numfiles):
-            name = self.files[i][0].rsplit('.', 1)
+            name = self.files[i][0].rsplit('.', 1) + ['']
             metadata =(name[0]+'\0'*9)[:9] + (name[1]+'\0'*7)[:7]
             metadata += struct.pack('II', self.files[i][1]+max(self.header_len, 40+24*numfiles), self.files[i][2])
             self.rmpfile.write(metadata)

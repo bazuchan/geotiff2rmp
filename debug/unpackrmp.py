@@ -12,7 +12,9 @@ def unpack_rmp(rmpfile, upath):
     files = []
     for i in range(0, numfiles):
         metadata = rmp.read(24)
-        filename = metadata[:9].rstrip('\0') + '.' + metadata[9:16].rstrip('\0')
+        filename = metadata[:9].rstrip('\0')
+        if metadata[9:16].rstrip('\0'):
+            filename += '.' + metadata[9:16].rstrip('\0')
         (fileoffset, filesize) = struct.unpack('II', metadata[16:])
         files.append((filename, fileoffset, filesize))
     tmp = rmp.read(40)
@@ -38,7 +40,14 @@ def unpack_rmp(rmpfile, upath):
     return (0,'')
 
 if __name__=='__main__':
-    res = unpack_rmp(sys.argv[1], sys.argv[2])
+    if len(sys.argv)>2:
+        dest = sys.argv[2]
+    elif len(sys.argv)==2:
+        dest = sys.argv[1] + '_unpack'
+    else:
+        sys.stderr.write('Usage: unpackrmp.py <rmp file> [dest dir]\n')
+        sys.exit(1)
+    res = unpack_rmp(sys.argv[1], dest)
     if res[0]!=0:
         sys.stderr.write('%s\n' % (res[1]))
         sys.exit(-1)

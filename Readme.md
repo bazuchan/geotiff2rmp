@@ -5,17 +5,20 @@ Code was based on RMPCreator project https://github.com/antalos/RMPCreator, but 
 Dependencies:
  - python2.7
  - gdal binaries
- - pillow (python-pil)
+ - pillow
  - rasterio (optional, https://github.com/mapbox/rasterio)
  - python-gdal (optional)
 
 Restrictions:
  - input map should be in WGS84 projection
- - works only on linux (other OS untested)
+ - works on linux and windows (other OS untested)
  - license is unclear, due to no license file in RMPCreator project
 
 Example usage:
  - Convert map to WGS84 projection: gdalwarp -t_srs WGS84 -tr 0.00014 0.000077 -overwrite Arbalet-MO_All_300DPI.map arbalet_wgs84.tiff
  - Run GeoTiff2RMP: ./geotiff2rmp.py -o arbalet.rmp arbalet_wgs84.tiff
  - Upload map to your Magellan unit and mark it to display
+
+Thanks:
+ - flywire (https://github.com/flywire) for help with Map Support File format and testing
 
