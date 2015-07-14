@@ -131,6 +131,8 @@ try:
     gdal_translate = gdal_translate_rasterio
     sys.stderr.write('Using rasterio module (Fast!)\n')
 except:
+    if os.path.isdir('gdal') and os.getenv('PATH'):
+        os.environ['PATH'] += os.pathsep + os.path.join(os.getcwd(), 'gdal')
     try:
         import gdal
         gdalinfo = gdalinfo_gdal
