@@ -255,10 +255,13 @@ class rmpAppender(object):
 class rmpFile(object):
     def __init__(self, filename):
         self.filename = filename
+        self.filename_tmp = self.filename + '.tmp'
+        if os.path.exists(self.filename):
+            os.unlink(self.filename)
         try:
-            self.rmpfile = open(filename, 'wb+')
+            self.rmpfile = open(self.filename_tmp, 'wb+')
         except:
-            raise MapError('Cant open rmp file "%s" for writing' % (filename))
+            raise MapError('Cant open tmp rmp file "%s" for writing' % (self.filename_tmp))
         self.files = []
         self.prealloc_files = 256
         self.header_len = 40+24*self.prealloc_files
@@ -292,7 +295,7 @@ class rmpFile(object):
 
     def finish(self):
         if len(self.files)>self.prealloc_files:
-            tmpfile = open(self.filename+'.tmp', 'wb+')
+            tmpfile = open(self.filename_tmp+'2', 'wb+')
             (rmpfile_old, self.rmpfile) = (self.rmpfile, tmpfile)
         self.rmpfile.seek(0, 0)
         numfiles = len(self.files)
@@ -308,11 +311,12 @@ class rmpFile(object):
             for i in range(0, (self.offset+BS-1)/BS):
                 self.rmpfile.write(rmpfile_old.read(BS))
             rmpfile_old.close()
-            os.unlink(self.filename)
-            os.rename(self.filename+'.tmp', self.filename)
+            os.unlink(self.filename_tmp)
+            os.rename(self.filename_tmp+'2', self.filename_tmp)
         self.rmpfile.seek(0, 2)
         self.rmpfile.write('MAGELLAN};')
         self.rmpfile.close()
+        os.rename(self.filename_tmp, self.filename)
 
 class tlmFile(object):
     def __init__(self, tlm=None, rmap=None, tiles_offset=None, tiles_size=None):
