@@ -129,7 +129,6 @@ try:
     import numpy
     gdalinfo = gdalinfo_rasterio
     gdal_translate = gdal_translate_rasterio
-    sys.stderr.write('Using rasterio module (Fast!)\n')
 except:
     if os.path.isdir('gdal') and os.getenv('PATH'):
         os.environ['PATH'] += os.pathsep + os.path.join(os.getcwd(), 'gdal')
@@ -137,11 +136,9 @@ except:
         import gdal
         gdalinfo = gdalinfo_gdal
         gdal_translate = gdal_translate_shell
-        sys.stderr.write('Using dgal module and binaries (Slow!)\n')
     except:
         gdalinfo = gdalinfo_shell
         gdal_translate = gdal_translate_shell
-        sys.stderr.write('Using dgal binaries (Slow!)\n')
 
 class mapFile(object):
     def __init__(self, filename):
@@ -619,6 +616,12 @@ if __name__=='__main__':
     if os.path.exists(options.rmpfile) and not options.rewrite:
         sys.stderr.write('Destination rmp file "%s" already exists, use -r/--rewrite to overwrite\n' % (options.rmpfile))
         sys.exit(2)
+    if gdalinfo == gdalinfo_shell:
+        sys.stderr.write('Using dgal binaries (Slow!)\n')
+    elif gdalinfo == gdalinfo_gdal:
+        sys.stderr.write('Using dgal module and binaries (Slow!)\n')
+    elif gdalinfo == gdalinfo_rasterio:
+        sys.stderr.write('Using rasterio module (Fast!)\n')
     converter = rmpConverter(options.rmpfile, options.name, options.group, options.prov, options.version, options.contact, options.copyright, options.copyrightfile, show_progress=True)
     for mapfile in args:
         rmap = mapFile(mapfile)
