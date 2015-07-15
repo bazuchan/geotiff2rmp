@@ -500,7 +500,7 @@ class rmpConverter(object):
         self.rmpfile.append_from_string('rmp.ini', inifile)
 
     def craft_resourse_files(self):
-        for i in ['chunk.ics', 'bmp2bit.ics', 'bmp4bit.ics']:
+        for i in ['bmp2bit.ics', 'bmp4bit.ics']:
             self.rmpfile.append_from_file(i, self.resdir + '/' + i)
 
     @staticmethod
@@ -611,12 +611,13 @@ if __name__=='__main__':
     parser.add_option("-c", "--contact", dest="contact", help="map contact [default: %default]", default='Anonymous')
     parser.add_option("-l", "--copyright", dest="copyright", help="map copyright [default: %default]", default='(C) Anonymous. License CC-BY-4.0.')
     parser.add_option("-f", "--copyright-file", dest="copyrightfile", help="map copyright text file [default: none]", default='')
+    parser.add_option("-r", "--rewrite", dest="rewrite", action="store_true", help="rewrite destination file even if it exists", default=False)
     (options, args) = parser.parse_args()
     if not options.rmpfile or len(args)<1:
         parser.print_usage()
         sys.exit(1)
-    if os.path.exists(options.rmpfile):
-        sys.stderr.write('Destination rmp file "%s" already exists\n' % (options.rmpfile))
+    if os.path.exists(options.rmpfile) and not options.rewrite:
+        sys.stderr.write('Destination rmp file "%s" already exists, use -r/--rewrite to overwrite\n' % (options.rmpfile))
         sys.exit(2)
     converter = rmpConverter(options.rmpfile, options.name, options.group, options.prov, options.version, options.contact, options.copyright, options.copyrightfile, show_progress=True)
     for mapfile in args:
