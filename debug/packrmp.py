@@ -1,7 +1,11 @@
 #!/usr/bin/python
 
 import sys
-sys.path.append('..')
+import os
+try:
+    sys.path.append(os.path.dirname(os.path.realpath(__file__)).rsplit('/', 1)[0])
+except:
+    sys.path.append('..')
 import geotiff2rmp
 
 def pack_rmp(rmpdir, rmpfile):
