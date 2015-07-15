@@ -443,7 +443,7 @@ class tlmFile(object):
         self.tlm.close()
 
 class rmpConverter(object):
-    def __init__(self, outfile, map_name, map_group, map_prov, map_ver, map_contact, map_copyright, map_copyright_file, jpeg_quality = 75, show_progress = False, resdir = 'bin_res'):
+    def __init__(self, outfile, map_name, map_group, map_prov, map_ver, map_contact, map_copyright, map_copyright_file, jpeg_quality = 75, show_progress = False, resdir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'bin_res')):
         self.maps = []
         self.outfile = outfile
         self.map_name = map_name
@@ -498,7 +498,7 @@ class rmpConverter(object):
 
     def craft_resourse_files(self):
         for i in ['bmp2bit.ics', 'bmp4bit.ics']:
-            self.rmpfile.append_from_file(i, self.resdir + '/' + i)
+            self.rmpfile.append_from_file(i, os.path.join(self.resdir, i))
 
     @staticmethod
     def get_tile_geometry(tileno, diff, size):
