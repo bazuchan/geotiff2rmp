@@ -500,7 +500,7 @@ class rmpConverter(object):
         self.rmpfile.append_from_string('rmp.ini', inifile)
 
     def craft_resourse_files(self):
-        for i in ['chunk.ics', 'BMP4BIT.ICS']:
+        for i in ['chunk.ics', 'bmp2bit.ics', 'bmp4bit.ics']:
             self.rmpfile.append_from_file(i, self.resdir + '/' + i)
 
     @staticmethod
