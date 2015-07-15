@@ -614,7 +614,10 @@ if __name__=='__main__':
     (options, args) = parser.parse_args()
     if not options.rmpfile or len(args)<1:
         parser.print_usage()
-        sys.exit(-1)
+        sys.exit(1)
+    if os.path.exists(options.rmpfile):
+        sys.stderr.write('Destination rmp file "%s" already exists\n' % (options.rmpfile))
+        sys.exit(2)
     converter = rmpConverter(options.rmpfile, options.name, options.group, options.prov, options.version, options.contact, options.copyright, options.copyrightfile, show_progress=True)
     for mapfile in args:
         rmap = mapFile(mapfile)
